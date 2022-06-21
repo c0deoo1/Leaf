@@ -61,7 +61,7 @@ public class SnowflakeZookeeperHolder {
                 return true;
             } else {
                 Map<String, Integer> nodeMap = Maps.newHashMap();//ip:port->00001
-                Map<String, String> realNode = Maps.newHashMap();//ip:port->(ipport-000001)
+                Map<String, String> realNode = Maps.newHashMap();//ip:port->(ip:port-000001)
                 //存在根节点,先检查是否有属于自己的根节点
                 List<String> keys = curator.getChildren().forPath(PATH_FOREVER);
                 for (String key : keys) {

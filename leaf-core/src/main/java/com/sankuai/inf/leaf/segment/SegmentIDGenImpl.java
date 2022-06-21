@@ -98,10 +98,12 @@ public class SegmentIDGenImpl implements IDGen {
             //db中新加的tags灌进cache
             for(int i = 0; i < cacheTags.size(); i++){
                 String tmp = cacheTags.get(i);
+                // DB中存在且Cache中也存在，则不需要做重复插入，直接删掉
                 if(insertTagsSet.contains(tmp)){
                     insertTagsSet.remove(tmp);
                 }
             }
+            // 将新增的tag插入到缓存中
             for (String tag : insertTagsSet) {
                 SegmentBuffer buffer = new SegmentBuffer();
                 buffer.setKey(tag);
@@ -115,6 +117,7 @@ public class SegmentIDGenImpl implements IDGen {
             //cache中已失效的tags从cache删除
             for(int i = 0; i < dbTags.size(); i++){
                 String tmp = dbTags.get(i);
+                // DB中存在，但是删除集合中存在，则以DB的为准
                 if(removeTagsSet.contains(tmp)){
                     removeTagsSet.remove(tmp);
                 }
@@ -137,7 +140,9 @@ public class SegmentIDGenImpl implements IDGen {
         }
         if (cache.containsKey(key)) {
             SegmentBuffer buffer = cache.get(key);
+            // 懒加载
             if (!buffer.isInitOk()) {
+                // double check
                 synchronized (buffer) {
                     if (!buffer.isInitOk()) {
                         try {
@@ -156,6 +161,7 @@ public class SegmentIDGenImpl implements IDGen {
     }
 
     public void updateSegmentFromDb(String key, Segment segment) {
+        // 对性能数据进行采集
         StopWatch sw = new Slf4JStopWatch();
         SegmentBuffer buffer = segment.getBuffer();
         LeafAlloc leafAlloc;
@@ -204,6 +210,7 @@ public class SegmentIDGenImpl implements IDGen {
             buffer.rLock().lock();
             try {
                 final Segment segment = buffer.getCurrent();
+                // 如果当前可用的号段小于90%了，就会启动线程来获取下一个号段
                 if (!buffer.isNextReady() && (segment.getIdle() < 0.9 * segment.getStep()) && buffer.getThreadRunning().compareAndSet(false, true)) {
                     service.execute(new Runnable() {
                         @Override
@@ -218,6 +225,7 @@ public class SegmentIDGenImpl implements IDGen {
                                 logger.warn(buffer.getKey() + " updateSegmentFromDb exception", e);
                             } finally {
                                 if (updateOk) {
+                                    // 写入的时候加写锁
                                     buffer.wLock().lock();
                                     buffer.setNextReady(true);
                                     buffer.getThreadRunning().set(false);
@@ -230,12 +238,14 @@ public class SegmentIDGenImpl implements IDGen {
                     });
                 }
                 long value = segment.getValue().getAndIncrement();
+                // 如果拿到的数据不合法，则会尝试切换buffer
                 if (value < segment.getMax()) {
                     return new Result(value, Status.SUCCESS);
                 }
             } finally {
                 buffer.rLock().unlock();
             }
+
             waitAndSleep(buffer);
             buffer.wLock().lock();
             try {
@@ -244,6 +254,7 @@ public class SegmentIDGenImpl implements IDGen {
                 if (value < segment.getMax()) {
                     return new Result(value, Status.SUCCESS);
                 }
+                // 做一下buffer切换
                 if (buffer.isNextReady()) {
                     buffer.switchPos();
                     buffer.setNextReady(false);
@@ -261,6 +272,7 @@ public class SegmentIDGenImpl implements IDGen {
         int roll = 0;
         while (buffer.getThreadRunning().get()) {
             roll += 1;
+            // 先忙等，尝试10000次后，再做sleep
             if(roll > 10000) {
                 try {
                     TimeUnit.MILLISECONDS.sleep(10);

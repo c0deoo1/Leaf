@@ -60,10 +60,12 @@ public class SnowflakeIDGenImpl implements IDGen {
     @Override
     public synchronized Result get(String key) {
         long timestamp = timeGen();
+        // 如果时间戳出现回拨
         if (timestamp < lastTimestamp) {
             long offset = lastTimestamp - timestamp;
             if (offset <= 5) {
                 try {
+                    // 先等一段时间再来拿
                     wait(offset << 1);
                     timestamp = timeGen();
                     if (timestamp < lastTimestamp) {
@@ -77,7 +79,9 @@ public class SnowflakeIDGenImpl implements IDGen {
                 return new Result(-3, Status.EXCEPTION);
             }
         }
+        // 如果时间戳和上次时间戳一样
         if (lastTimestamp == timestamp) {
+            // 判断sequence是否用完了
             sequence = (sequence + 1) & sequenceMask;
             if (sequence == 0) {
                 //seq 为0的时候表示是下一毫秒时间开始对seq做随机
